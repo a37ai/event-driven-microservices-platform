@@ -1,2 +1,5 @@
 .DS_Store
 /.project
+terraform/.terraform
+terraform/.terraform.lock.hcl
+terraform/edmp-key

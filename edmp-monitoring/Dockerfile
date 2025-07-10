@@ -1,4 +1,4 @@
-FROM java:8-jdk
+FROM openjdk:8-jdk
 MAINTAINER Tobias Flohre tobias.flohre@codecentric.de
 
 ENV SBA_VERSION 1.3.3

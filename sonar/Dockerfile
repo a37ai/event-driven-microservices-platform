@@ -6,7 +6,7 @@
 # Original: https://hub.docker.com/_/sonarqube/
 #
 
-FROM java:openjdk-8u45-jdk
+FROM openjdk:8-jdk
 
 MAINTAINER Marcel Birkner <marcel.birkner@codecentric.de>
 

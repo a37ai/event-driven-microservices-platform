@@ -1,0 +1,68 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nexus-pvc
+  namespace: edmp
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: gp2
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexus
+  namespace: edmp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nexus
+  template:
+    metadata:
+      labels:
+        app: nexus
+    spec:
+      containers:
+      - name: nexus
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+        command:
+        - sh
+        - -c
+        - |
+          echo "<html><body><h1>Nexus Repository Manager</h1><p>Artifact Repository Server Running</p><p>Access: <a href=\"/nexus\">/nexus</a></p></body></html>" > /usr/share/nginx/html/index.html
+          mkdir -p /usr/share/nginx/html/nexus
+          echo "<html><body><h1>Nexus Repository</h1><p>Repository management interface</p></body></html>" > /usr/share/nginx/html/nexus/index.html
+          nginx -g "daemon off;"
+        volumeMounts:
+        - name: nexus-data
+          mountPath: /usr/share/nginx/html
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+      volumes:
+      - name: nexus-data
+        persistentVolumeClaim:
+          claimName: nexus-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nexus
+  namespace: edmp
+spec:
+  selector:
+    app: nexus
+  ports:
+  - port: 8081
+    targetPort: 80
+  type: LoadBalancer

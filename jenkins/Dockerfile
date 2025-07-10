@@ -1,4 +1,4 @@
-FROM jenkins:1.642.1
+FROM jenkins/jenkins:2.401.3-lts
 
 MAINTAINER Marcel Birkner <marcel.birkner@codecentric.de>
 
