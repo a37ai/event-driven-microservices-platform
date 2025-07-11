@@ -10,7 +10,6 @@ terraform {
 
 provider "aws" {
   region  = var.aws_region
-  profile = "sandbox-permanent"
 }
 
 # Get default VPC and subnets (no permissions needed to create VPC)
