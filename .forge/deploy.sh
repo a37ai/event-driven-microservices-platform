@@ -26,7 +26,8 @@ KEY_BASE="${1:-edmp-key}"                # default file name (no extension)
 PUB_KEY="${KEY_BASE}.pub"
 
 # Backend configuration - use existing or create with fixed names
-BUCKET_NAME="edmp-terraform-state-permanent"
+UUID=$(uuidgen -r)
+BUCKET_NAME="edmp-terraform-state-permanent-$UUID"
 DYNAMODB_TABLE="edmp-terraform-state-lock-permanent"
 REGION="us-west-1"
 
