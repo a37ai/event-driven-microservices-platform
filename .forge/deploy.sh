@@ -105,6 +105,14 @@ fi
 
 chmod 600 "terraform/$KEY_BASE"
 
+# Check if key pair already exists in AWS
+if aws ec2 describe-key-pairs --key-names "edmp-key" --region "$REGION" >/dev/null 2>&1; then
+  echo "⚠️  AWS key pair 'edmp-key' already exists. Will import it into Terraform state."
+  KEY_EXISTS_IN_AWS=true
+else
+  KEY_EXISTS_IN_AWS=false
+fi
+
 # ──────────────────────────────────────────────────────────────
 # 3️⃣  update terraform backend configuration
 # ──────────────────────────────────────────────────────────────
@@ -119,22 +127,31 @@ cd terraform
 # 4️⃣  run Terraform
 # ──────────────────────────────────────────────────────────────
 echo "🔧  Initializing Terraform..."
+
+# If state migration is needed, we need to allow interactive input
+
 terraform init \
-  -backend-config="bucket=${BUCKET_NAME}" \
-  -backend-config="key=edmp/terraform.tfstate" \
-  -backend-config="region=${REGION}" \
-  -backend-config="encrypt=true" \
-  -backend-config="dynamodb_table=${DYNAMODB_TABLE}" \
-  -backend-config="workspace_key_prefix=edmp" \
-  -upgrade -migrate-state -input=false || \
+-backend-config="bucket=${BUCKET_NAME}" \
+-backend-config="key=edmp/terraform.tfstate" \
+-backend-config="region=${REGION}" \
+-backend-config="encrypt=true" \
+-backend-config="dynamodb_table=${DYNAMODB_TABLE}" \
+-backend-config="workspace_key_prefix=edmp" \
+-upgrade -input=false || \
 terraform init \
-  -backend-config="bucket=${BUCKET_NAME}" \
-  -backend-config="key=edmp/terraform.tfstate" \
-  -backend-config="region=${REGION}" \
-  -backend-config="encrypt=true" \
-  -backend-config="dynamodb_table=${DYNAMODB_TABLE}" \
-  -backend-config="workspace_key_prefix=edmp" \
-  -reconfigure -upgrade -input=false
+-backend-config="bucket=${BUCKET_NAME}" \
+-backend-config="key=edmp/terraform.tfstate" \
+-backend-config="region=${REGION}" \
+-backend-config="encrypt=true" \
+-backend-config="dynamodb_table=${DYNAMODB_TABLE}" \
+-backend-config="workspace_key_prefix=edmp" \
+-reconfigure -upgrade -input=false
+
+# Import existing AWS key pair if it exists
+if [ "$KEY_EXISTS_IN_AWS" = true ]; then
+  echo "📥  Importing existing AWS key pair into Terraform state..."
+  terraform import aws_key_pair.edmp_key edmp-key || echo "⚠️  Key pair import failed (may already be in state)"
+fi
 
 echo "🚀  Applying Terraform configuration..."
 terraform apply -auto-approve
