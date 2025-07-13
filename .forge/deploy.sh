@@ -112,25 +112,29 @@ echo "🔧  Updating Terraform backend configuration..."
 
 cd terraform
 
-# Create backend configuration
-cat > backend.tf <<EOF
-terraform {
-  backend "s3" {
-    bucket         = "$BUCKET_NAME"
-    key            = "edmp/terraform.tfstate"
-    region         = "$REGION"
-    encrypt        = true
-    dynamodb_table = "$DYNAMODB_TABLE"
-    workspace_key_prefix = "edmp"
-  }
-}
-EOF
+# Backend configuration is supplied dynamically via CLI flags during 'terraform init'
+# (see the init command below). This avoids rewriting backend.tf.
 
 # ──────────────────────────────────────────────────────────────
 # 4️⃣  run Terraform
 # ──────────────────────────────────────────────────────────────
 echo "🔧  Initializing Terraform..."
-terraform init -upgrade -input=false || terraform init -reconfigure -upgrade -input=false
+terraform init \
+  -backend-config="bucket=${BUCKET_NAME}" \
+  -backend-config="key=edmp/terraform.tfstate" \
+  -backend-config="region=${REGION}" \
+  -backend-config="encrypt=true" \
+  -backend-config="dynamodb_table=${DYNAMODB_TABLE}" \
+  -backend-config="workspace_key_prefix=edmp" \
+  -upgrade -migrate-state -input=false || \
+terraform init \
+  -backend-config="bucket=${BUCKET_NAME}" \
+  -backend-config="key=edmp/terraform.tfstate" \
+  -backend-config="region=${REGION}" \
+  -backend-config="encrypt=true" \
+  -backend-config="dynamodb_table=${DYNAMODB_TABLE}" \
+  -backend-config="workspace_key_prefix=edmp" \
+  -reconfigure -upgrade -input=false
 
 echo "🚀  Applying Terraform configuration..."
 terraform apply -auto-approve
