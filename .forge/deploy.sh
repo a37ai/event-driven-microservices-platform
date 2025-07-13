@@ -130,7 +130,7 @@ EOF
 # 4️⃣  run Terraform
 # ──────────────────────────────────────────────────────────────
 echo "🔧  Initializing Terraform..."
-terraform init -upgrade -migrate-state -input=false || terraform init -reconfigure -upgrade -input=false
+terraform init -upgrade -input=false || terraform init -reconfigure -upgrade -input=false
 
 echo "🚀  Applying Terraform configuration..."
 terraform apply -auto-approve
