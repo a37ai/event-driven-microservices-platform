@@ -107,25 +107,10 @@ chmod 600 "terraform/$KEY_BASE"
 
 # Check if key pair already exists in AWS
 if aws ec2 describe-key-pairs --key-names "edmp-key" --region "$REGION" >/dev/null 2>&1; then
-  echo "⚠️  AWS key pair 'edmp-key' already exists. Will import it into Terraform state."
+  echo "⚠️  AWS key pair 'edmp-key' already exists. Will handle it appropriately."
   KEY_EXISTS_IN_AWS=true
 else
   KEY_EXISTS_IN_AWS=false
-fi
-
-# NEW: ensure the key is in state or delete it
-if [ "$KEY_EXISTS_IN_AWS" = true ]; then
-  # Is it already in Terraform state?
-  if terraform state list 2>/dev/null | grep -q '^aws_key_pair\.edmp_key$'; then
-    echo "✅  Key already tracked in Terraform state."
-  else
-    echo "📥  Importing key into state..."
-    if ! terraform import aws_key_pair.edmp_key edmp-key; then
-      echo "🗑️  Import failed – deleting remote key to avoid duplication"
-      aws ec2 delete-key-pair --key-name edmp-key --region "$REGION"
-      KEY_EXISTS_IN_AWS=false   # let Terraform create it from scratch
-    fi
-  fi
 fi
 
 # ──────────────────────────────────────────────────────────────
@@ -162,10 +147,23 @@ terraform init \
 -backend-config="workspace_key_prefix=edmp" \
 -reconfigure -upgrade -input=false
 
-# Import existing AWS key pair if it exists
+# Handle existing AWS key pair if it exists
 if [ "$KEY_EXISTS_IN_AWS" = true ]; then
-  echo "📥  Importing existing AWS key pair into Terraform state..."
-  terraform import aws_key_pair.edmp_key edmp-key || echo "⚠️  Key pair import failed (may already be in state)"
+  # Check if the key is already in Terraform state
+  if terraform state list | grep -q '^aws_key_pair\.edmp_key$' 2>/dev/null; then
+    echo "✅  Key pair already tracked in Terraform state."
+  else
+    echo "📥  Importing existing AWS key pair into Terraform state..."
+    if ! terraform import aws_key_pair.edmp_key edmp-key; then
+      echo "❌  Key pair import failed."
+      echo "🔄  Attempting alternative approach: removing key from AWS to let Terraform recreate it..."
+      aws ec2 delete-key-pair --key-name edmp-key --region "$REGION"
+      echo "✅  Removed existing key pair from AWS. Terraform will create a new one."
+      KEY_EXISTS_IN_AWS=false
+    else
+      echo "✅  Successfully imported key pair into Terraform state."
+    fi
+  fi
 fi
 
 echo "🚀  Applying Terraform configuration..."
