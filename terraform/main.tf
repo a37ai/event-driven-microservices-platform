@@ -125,10 +125,9 @@ resource "aws_security_group" "edmp_container_sg" {
   }
 }
 
-# Create a key pair for SSH access
-resource "aws_key_pair" "edmp_key" {
-  key_name   = "edmp-key"
-  public_key = file("${path.module}/edmp-key.pub")
+# Reference the existing key pair (created by deploy.sh)
+data "aws_key_pair" "edmp_key" {
+  key_name = "edmp-key"
 }
 
 # Get the latest Amazon Linux 2 AMI
@@ -156,7 +155,7 @@ resource "aws_instance" "edmp_server" {
   subnet_id              = data.aws_subnets.default.ids[0]
   
   associate_public_ip_address = true
-  key_name = aws_key_pair.edmp_key.key_name
+  key_name = data.aws_key_pair.edmp_key.key_name
   
   user_data = file("${path.module}/user-data-complete.sh")
 
@@ -179,6 +178,7 @@ resource "aws_instance" "edmp_server" {
       private_key = file("${path.module}/edmp-key")
       host        = self.public_ip
       timeout     = "10m"
+      agent       = false
     }
   }
 }
