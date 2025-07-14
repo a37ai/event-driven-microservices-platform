@@ -113,6 +113,21 @@ else
   KEY_EXISTS_IN_AWS=false
 fi
 
+# NEW: ensure the key is in state or delete it
+if [ "$KEY_EXISTS_IN_AWS" = true ]; then
+  # Is it already in Terraform state?
+  if terraform state list 2>/dev/null | grep -q '^aws_key_pair\.edmp_key$'; then
+    echo "✅  Key already tracked in Terraform state."
+  else
+    echo "📥  Importing key into state..."
+    if ! terraform import aws_key_pair.edmp_key edmp-key; then
+      echo "🗑️  Import failed – deleting remote key to avoid duplication"
+      aws ec2 delete-key-pair --key-name edmp-key --region "$REGION"
+      KEY_EXISTS_IN_AWS=false   # let Terraform create it from scratch
+    fi
+  fi
+fi
+
 # ──────────────────────────────────────────────────────────────
 # 3️⃣  update terraform backend configuration
 # ──────────────────────────────────────────────────────────────
