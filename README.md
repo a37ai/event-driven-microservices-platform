@@ -184,3 +184,87 @@ $ sudo udhcpc
 # Restart docker process
 $ sudo /etc/init.d/docker restart
 ```
+# Event-Driven Microservices Platform
+
+## Project Overview
+This repository contains everything needed to deploy an event-driven microservices platform powered by Kafka, Jenkins, SonarQube, Nexus, and monitoring stacks on AWS.
+
+Key components:
+- **Kafka** for distributed event streaming
+- **Jenkins** for CI/CD pipelines
+- **SonarQube** for code quality analysis
+- **Nexus** as artifact repository
+- **Prometheus/Grafana** for monitoring and alerting
+
+## Architecture
+
+```text
+             ┌──────────────┐            ┌─────────────┐
+             │  Producers   │            │  Consumers  │
+             └──────┬───────┘            └──────┬──────┘
+                    ▼                           ▼
+               ┌───────────┐    Kafka    ┌───────────┐
+               │  Topics   │◀──────────▶│  Topics   │
+               └───────────┘            └───────────┘
+                    │                           │
+                    ▼                           ▼
+             ┌──────────────┐            ┌─────────────┐
+             │Applications  │            │Applications │
+             └──────┬───────┘            └──────┬──────┘
+                    ▼                           ▼
+      Jenkins, SonarQube, Nexus           Monitoring (Prometheus/Grafana)
+```
+
+## Prerequisites
+- AWS CLI configured with appropriate credentials
+- Terraform v1.12.1
+- AWS Provider v6.3.0
+- Helm v3.0.2 (for Kubernetes components)
+- kubectl configured for your EKS cluster
+
+## Installation
+1. Clone this repository:
+   ```bash
+   git clone https://github.com/your-org/event-driven-microservices-platform.git
+   cd event-driven-microservices-platform
+   ```
+2. Initialize Terraform:
+   ```bash
+   cd terraform
+   terraform init -backend-config="path=state.tfstate"
+   ```
+3. Provision infrastructure:
+   ```bash
+   terraform apply
+   ```
+
+## Deployment
+1. Switch to the `.forge` directory to deploy services:
+   ```bash
+   cd .forge
+   ./deploy.sh
+   ```
+2. Monitor logs and service health:
+   ```bash
+   ./monitor-edmp.sh
+   ```
+
+## Usage
+- Access Jenkins at `http://<jenkins-domain>`
+- Access Nexus at `http://<nexus-domain>`
+- Produce and consume Kafka messages via provided scripts under `k8s/`.
+
+## Cleanup
+To destroy all provisioned resources:
+```bash
+cd .forge
+./destroy.sh
+cd ../terraform
+terraform destroy
+```
+
+## Contributing
+Contributions are welcome! Please fork the repo, create a feature branch, and submit a pull request. Be sure to run linting and tests before submitting.
+
+## License
+This project is MIT licensed. See the [LICENSE](../LICENSE) file for details.
