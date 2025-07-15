@@ -22,6 +22,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
+# Ensure uuidgen is available -------------------------------------------------
+if ! command -v uuidgen >/dev/null 2>&1; then
+  echo "uuidgen not found — installing..."
+  sudo apt-get update -y                 # refresh package index
+  sudo apt-get install -y uuid-runtime   # uuidgen lives in this package
+fi
+
 # Generate unique key name using UUID
 UUID=$(uuidgen | tr '[:upper:]' '[:lower:]' | cut -c1-8)
 UNIQUE_KEY_NAME="edmp-key-${UUID}"
