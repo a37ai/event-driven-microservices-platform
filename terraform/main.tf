@@ -127,7 +127,7 @@ resource "aws_security_group" "edmp_container_sg" {
 
 # Reference the existing key pair (created by deploy.sh)
 data "aws_key_pair" "edmp_key" {
-  key_name = "edmp-key"
+  key_name = var.key_pair_name
 }
 
 # Get the latest Amazon Linux 2 AMI

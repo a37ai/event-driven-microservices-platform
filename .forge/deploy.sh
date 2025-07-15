@@ -22,7 +22,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
-KEY_BASE="${1:-edmp-key}"                # default file name (no extension)
+# Generate unique key name using UUID
+UUID=$(uuidgen | tr '[:upper:]' '[:lower:]' | cut -c1-8)
+UNIQUE_KEY_NAME="edmp-key-${UUID}"
+KEY_BASE="${1:-edmp-key}"                # default local file name (no extension)
 PUB_KEY="${KEY_BASE}.pub"
 
 # Backend configuration - use existing or create with fixed names
@@ -97,8 +100,10 @@ fi
 # ──────────────────────────────────────────────────────────────
 # 2️⃣  generate key-pair once
 # ──────────────────────────────────────────────────────────────
-if [[ ! -f "terraform/$PUB_KEY" ]]; then
+if [[ ! -f "terraform/$KEY_BASE" ]] || [[ ! -f "terraform/$PUB_KEY" ]]; then
   echo "🔑  Generating SSH key-pair ($KEY_BASE)"
+  # Remove any partial key files first
+  rm -f "terraform/$KEY_BASE" "terraform/$PUB_KEY"
   ssh-keygen -t ed25519 -f "terraform/$KEY_BASE" -N "" -C "edmp-platform"
 else
   echo "🔑  Using existing key-pair ($KEY_BASE)"
@@ -107,20 +112,15 @@ fi
 chmod 600 "terraform/$KEY_BASE"
 
 # ──────────────────────────────────────────────────────────────
-# 2.5️⃣  ensure AWS key pair exists (create if it doesn't)
+# 2.5️⃣  create unique AWS key pair
 # ──────────────────────────────────────────────────────────────
-echo "🔍  Checking AWS key pair..."
-if aws ec2 describe-key-pairs --key-names "edmp-key" --region "$REGION" >/dev/null 2>&1; then
-  echo "✅  AWS key pair 'edmp-key' already exists."
-else
-  echo "📤  Creating AWS key pair 'edmp-key'..."
-  # Import the public key to AWS using fileb:// prefix
-  aws ec2 import-key-pair \
-    --key-name "edmp-key" \
-    --public-key-material "fileb://terraform/$PUB_KEY" \
-    --region "$REGION"
-  echo "✅  AWS key pair created successfully."
-fi
+echo "📤  Creating unique AWS key pair '${UNIQUE_KEY_NAME}'..."
+# Always create a new unique key pair - no conflicts!
+aws ec2 import-key-pair \
+  --key-name "${UNIQUE_KEY_NAME}" \
+  --public-key-material "fileb://terraform/$PUB_KEY" \
+  --region "$REGION"
+echo "✅  AWS key pair '${UNIQUE_KEY_NAME}' created successfully."
 
 # ──────────────────────────────────────────────────────────────
 # 3️⃣  update terraform backend configuration
@@ -167,7 +167,7 @@ fi
 # No need to handle key pairs here - AWS CLI already ensured it exists!
 
 echo "🚀  Applying Terraform configuration..."
-terraform apply -var="aws_region=${REGION}" -auto-approve
+terraform apply -var="aws_region=${REGION}" -var="key_pair_name=${UNIQUE_KEY_NAME}" -auto-approve
 
 # ──────────────────────────────────────────────────────────────
 # 5️⃣  show connection info and output credentials
@@ -354,4 +354,5 @@ cat > .terraform-backend-info <<EOF
 BUCKET_NAME=$BUCKET_NAME
 DYNAMODB_TABLE=$DYNAMODB_TABLE
 REGION=$REGION
+KEY_PAIR_NAME=$UNIQUE_KEY_NAME
 EOF
