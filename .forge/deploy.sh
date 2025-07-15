@@ -117,7 +117,30 @@ chmod 600 "terraform/$KEY_BASE"
 # 2.5️⃣  create unique AWS key pair
 # ──────────────────────────────────────────────────────────────
 echo "📤  Creating unique AWS key pair '${UNIQUE_KEY_NAME}'..."
+
+# Verify key files exist before attempting import
+if [[ ! -f "terraform/$KEY_BASE" ]] || [[ ! -f "terraform/$PUB_KEY" ]]; then
+  echo "❌  ERROR: Key files not found after generation!"
+  echo "    Expected: terraform/$KEY_BASE and terraform/$PUB_KEY"
+  echo "    Current directory: $(pwd)"
+  ls -la terraform/ | grep -E "(${KEY_BASE}|pub)" || echo "    No key files found"
+  exit 1
+fi
+
+# Verify public key file is readable
+if [[ ! -r "terraform/$PUB_KEY" ]]; then
+  echo "❌  ERROR: Public key file is not readable: terraform/$PUB_KEY"
+  ls -la "terraform/$PUB_KEY"
+  exit 1
+fi
+
+# Debug info
+echo "    Key files verified:"
+echo "    - Private key: terraform/$KEY_BASE ($(stat -c %s terraform/$KEY_BASE 2>/dev/null || stat -f %z terraform/$KEY_BASE) bytes)"
+echo "    - Public key: terraform/$PUB_KEY ($(stat -c %s terraform/$PUB_KEY 2>/dev/null || stat -f %z terraform/$PUB_KEY) bytes)"
+
 # Always create a new unique key pair - no conflicts!
+echo "    Importing public key to AWS..."
 aws ec2 import-key-pair \
   --key-name "${UNIQUE_KEY_NAME}" \
   --public-key-material "fileb://terraform/$PUB_KEY" \
