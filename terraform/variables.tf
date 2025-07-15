@@ -40,3 +40,9 @@ variable "db_password" {
   sensitive   = true
   default     = "sonar123!"
 }
+
+variable "key_pair_name" {
+  description = "Name of the AWS key pair to use"
+  type        = string
+  default     = "edmp-key"
+}

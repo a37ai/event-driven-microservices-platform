@@ -1,3 +1,4 @@
-BUCKET_NAME=edmp-terraform-state-permanent
-DYNAMODB_TABLE=edmp-terraform-state-lock-permanent
-REGION=us-west-1
+BUCKET_NAME=edmp-terraform-state-013364997013
+DYNAMODB_TABLE=edmp-terraform-state-lock
+REGION=us-east-1
+KEY_PAIR_NAME=edmp-key-f6a1d0a6
