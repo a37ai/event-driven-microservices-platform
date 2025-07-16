@@ -192,7 +192,32 @@ fi
 # No need to handle key pairs here - AWS CLI already ensured it exists!
 
 echo "🚀  Applying Terraform configuration..."
-terraform apply -var="aws_region=${REGION}" -var="key_pair_name=${UNIQUE_KEY_NAME}" -auto-approve
+
+# Instance type fallbacks for better resilience
+INSTANCE_TYPES=("t3.small" "t3.medium" "t2.medium" "t2.small" "t3.large")
+TERRAFORM_SUCCESS=false
+
+for INSTANCE_TYPE in "${INSTANCE_TYPES[@]}"; do
+    echo "🔄  Attempting deployment with instance type: $INSTANCE_TYPE"
+    
+    if terraform apply -var="aws_region=${REGION}" -var="key_pair_name=${UNIQUE_KEY_NAME}" -var="instance_type=${INSTANCE_TYPE}" -auto-approve; then
+        echo "✅  Deployment successful with instance type: $INSTANCE_TYPE"
+        TERRAFORM_SUCCESS=true
+        break
+    else
+        echo "❌  Failed with instance type: $INSTANCE_TYPE"
+        if [ "$INSTANCE_TYPE" != "${INSTANCE_TYPES[-1]}" ]; then
+            echo "🔄  Trying next instance type..."
+            # Wait a bit before retrying
+            sleep 5
+        fi
+    fi
+done
+
+if [ "$TERRAFORM_SUCCESS" = false ]; then
+    echo "❌  All instance types failed. Deployment unsuccessful."
+    exit 1
+fi
 
 # ──────────────────────────────────────────────────────────────
 # 5️⃣  show connection info and output credentials
@@ -201,6 +226,7 @@ IP="$(terraform output -raw public_ip)"
 echo ""
 echo "=============================================="
 echo "🚀 Infrastructure deployed successfully!"
+echo "📊 Instance deployed with type: $INSTANCE_TYPE"
 echo "SSH into the instance:"
 echo ""
 echo "  ssh -i terraform/${KEY_BASE} ec2-user@${IP}"
