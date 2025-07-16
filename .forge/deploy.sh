@@ -207,7 +207,7 @@ for INSTANCE_TYPE in "${INSTANCE_TYPES[@]}"; do
     else
         echo "❌  Failed with instance type: $INSTANCE_TYPE"
         # Get the last item in a POSIX-compliant way
-        local last_index=$(( ${#INSTANCE_TYPES[@]} - 1 ))
+        last_index=$(( ${#INSTANCE_TYPES[@]} - 1 ))
         if [ "$INSTANCE_TYPE" != "${INSTANCE_TYPES[$last_index]}" ]; then
             echo "🔄  Trying next instance type..."
             # Wait a bit before retrying
