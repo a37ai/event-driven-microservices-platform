@@ -3,6 +3,11 @@ output "public_ip" {
   value       = aws_instance.edmp_server.public_ip
 }
 
+output "instance_id" {
+  description = "ID of the EC2 instance"
+  value       = aws_instance.edmp_server.id
+}
+
 output "server_public_ip" {
   description = "Public IP address of the EDMP server"
   value       = aws_instance.edmp_server.public_ip
