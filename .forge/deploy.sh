@@ -391,24 +391,55 @@ if [ $JENKINS_ATTEMPT -gt $MAX_JENKINS_ATTEMPTS ]; then
     JENKINS_USER_EXTRACTED=""
     JENKINS_API_TOKEN_EXTRACTED=""
 else
-    # Extract Jenkins password via SSM
-    echo "DEBUG: Getting Jenkins initial admin password via SSM..."
-    PWD_CMD_ID=$(aws ssm send-command \
+    # Check if Jenkins is using configured password (setup wizard disabled)
+    echo "DEBUG: Checking Jenkins configuration mode..."
+    CONFIG_CHECK_CMD_ID=$(aws ssm send-command \
         --document-name "AWS-RunShellScript" \
         --instance-ids "$INSTANCE_ID" \
-        --parameters 'commands=["docker exec $(docker ps -qf '\''name=jenkins'\'') cat /var/jenkins_home/secrets/initialAdminPassword 2>/dev/null || echo admin"]' \
+        --parameters 'commands=["docker exec $(docker ps -q --filter '\''name=jenkins'\'' | head -1) env 2>/dev/null | grep -q runSetupWizard=false && echo CONFIGURED || echo STANDARD"]' \
         --region "$REGION" \
         --query "Command.CommandId" \
         --output text 2>/dev/null)
     
-    sleep 5
-    
-    JENKINS_PASSWORD=$(aws ssm get-command-invocation \
-        --command-id "$PWD_CMD_ID" \
-        --instance-id "$INSTANCE_ID" \
-        --region "$REGION" \
-        --query "StandardOutputContent" \
-        --output text 2>/dev/null | tr -d '\n' || echo "admin")
+    if [ -n "$CONFIG_CHECK_CMD_ID" ]; then
+        sleep 5
+        CONFIG_MODE=$(aws ssm get-command-invocation \
+            --command-id "$CONFIG_CHECK_CMD_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --region "$REGION" \
+            --query "StandardOutputContent" \
+            --output text 2>/dev/null | tr -d '\n' || echo "STANDARD")
+        
+        if [ "$CONFIG_MODE" == "CONFIGURED" ]; then
+            echo "DEBUG: Jenkins is using pre-configured password"
+            JENKINS_PASSWORD="admin123"
+        else
+            echo "DEBUG: Jenkins is using standard setup - extracting initial admin password..."
+            PWD_CMD_ID=$(aws ssm send-command \
+                --document-name "AWS-RunShellScript" \
+                --instance-ids "$INSTANCE_ID" \
+                --parameters 'commands=["docker exec $(docker ps -q --filter '\''name=jenkins'\'' | head -1) cat /var/jenkins_home/secrets/initialAdminPassword 2>/dev/null || echo admin"]' \
+                --region "$REGION" \
+                --query "Command.CommandId" \
+                --output text 2>/dev/null)
+            
+            if [ -n "$PWD_CMD_ID" ]; then
+                sleep 5
+                JENKINS_PASSWORD=$(aws ssm get-command-invocation \
+                    --command-id "$PWD_CMD_ID" \
+                    --instance-id "$INSTANCE_ID" \
+                    --region "$REGION" \
+                    --query "StandardOutputContent" \
+                    --output text 2>/dev/null | tr -d '\n' || echo "admin")
+            else
+                echo "⚠️  Failed to send SSM command for Jenkins password extraction"
+                JENKINS_PASSWORD="admin"
+            fi
+        fi
+    else
+        echo "⚠️  Failed to check Jenkins configuration mode"
+        JENKINS_PASSWORD="admin"
+    fi
     
     echo "DEBUG: Jenkins password extracted: [hidden]"
     
@@ -421,14 +452,57 @@ fi
 echo "Extracting Nexus credentials..."
 echo "DEBUG: Using SSM to extract Nexus credentials"
 
-# Extract Nexus password via SSM
-NEXUS_CMD_ID=$(aws ssm send-command \
-    --document-name "AWS-RunShellScript" \
-    --instance-ids "$INSTANCE_ID" \
-    --parameters 'commands=["docker exec $(docker ps -qf '\''name=nexus'\'') cat /nexus-data/admin.password 2>/dev/null | tr -d '\''\n'\'' || echo extraction-failed"]' \
-    --region "$REGION" \
-    --query "Command.CommandId" \
-    --output text 2>/dev/null)
+# First check if Nexus is ready
+echo "Checking Nexus availability..."
+MAX_NEXUS_ATTEMPTS=30
+NEXUS_ATTEMPT=1
+NEXUS_READY=false
+
+while [ $NEXUS_ATTEMPT -le $MAX_NEXUS_ATTEMPTS ]; do
+    echo "DEBUG: Testing Nexus connectivity via SSM - attempt $NEXUS_ATTEMPT"
+    
+    NEXUS_CHECK_CMD_ID=$(aws ssm send-command \
+        --document-name "AWS-RunShellScript" \
+        --instance-ids "$INSTANCE_ID" \
+        --parameters 'commands=["curl -s http://localhost:8081/service/rest/v1/status > /dev/null && echo READY || echo WAITING"]' \
+        --region "$REGION" \
+        --query "Command.CommandId" \
+        --output text 2>/dev/null)
+    
+    if [ -n "$NEXUS_CHECK_CMD_ID" ]; then
+        sleep 5
+        NEXUS_STATUS=$(aws ssm get-command-invocation \
+            --command-id "$NEXUS_CHECK_CMD_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --region "$REGION" \
+            --query "StandardOutputContent" \
+            --output text 2>/dev/null || echo "WAITING")
+        
+        if [ "$NEXUS_STATUS" == "READY" ]; then
+            echo "✅ Nexus is ready!"
+            NEXUS_READY=true
+            break
+        fi
+    fi
+    
+    echo "⏳ Nexus not ready yet... (attempt $NEXUS_ATTEMPT/$MAX_NEXUS_ATTEMPTS)"
+    sleep 10
+    NEXUS_ATTEMPT=$((NEXUS_ATTEMPT + 1))
+done
+
+if [ "$NEXUS_READY" = true ]; then
+    # Extract Nexus password via SSM
+    NEXUS_CMD_ID=$(aws ssm send-command \
+        --document-name "AWS-RunShellScript" \
+        --instance-ids "$INSTANCE_ID" \
+        --parameters 'commands=["docker exec $(docker ps -q --filter '\''name=nexus'\'' | head -1) cat /nexus-data/admin.password 2>/dev/null | tr -d '\''\n'\'' || echo extraction-failed"]' \
+        --region "$REGION" \
+        --query "Command.CommandId" \
+        --output text 2>/dev/null)
+else
+    echo "❌ Nexus failed to become ready in time"
+    NEXUS_CMD_ID=""
+fi
 
 if [ -n "$NEXUS_CMD_ID" ]; then
     sleep 5
@@ -592,7 +666,7 @@ if [ -z "$JENKINS_API_TOKEN_EXTRACTED" ] || [ "$JENKINS_API_TOKEN_EXTRACTED" = "
     FALLBACK_JENKINS_CMD_ID=$(aws ssm send-command \
         --document-name "AWS-RunShellScript" \
         --instance-ids "$INSTANCE_ID" \
-        --parameters 'commands=["docker exec $(docker ps -qf '\''name=jenkins'\'') cat /var/jenkins_home/secrets/initialAdminPassword 2>/dev/null || echo fallback-failed"]' \
+        --parameters 'commands=["docker exec $(docker ps -q --filter '\''name=jenkins'\'' | head -1) cat /var/jenkins_home/secrets/initialAdminPassword 2>/dev/null || echo fallback-failed"]' \
         --region "$REGION" \
         --query "Command.CommandId" \
         --output text 2>/dev/null)
@@ -619,7 +693,7 @@ if [ -z "$NEXUS_PASSWORD_EXTRACTED" ] || [ "$NEXUS_PASSWORD_EXTRACTED" = "nexus-
     FALLBACK_NEXUS_CMD_ID=$(aws ssm send-command \
         --document-name "AWS-RunShellScript" \
         --instance-ids "$INSTANCE_ID" \
-        --parameters 'commands=["docker exec $(docker ps -qf '\''name=nexus'\'') cat /nexus-data/admin.password 2>/dev/null | tr -d '\''\n'\'' || echo fallback-failed"]' \
+        --parameters 'commands=["docker exec $(docker ps -q --filter '\''name=nexus'\'' | head -1) cat /nexus-data/admin.password 2>/dev/null | tr -d '\''\n'\'' || echo fallback-failed"]' \
         --region "$REGION" \
         --query "Command.CommandId" \
         --output text 2>/dev/null)
