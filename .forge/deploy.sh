@@ -19,10 +19,18 @@
 
 set -euo pipefail
 
+# Verify AWS CLI is available
+if ! command -v aws &> /dev/null; then
+    echo "❌ AWS CLI is not installed or not in PATH"
+    exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
-UUID="$(date +%s%N)-$(( RANDOM % 10000 ))" # screw uuid
+# Generate a more unique identifier for concurrent executions
+# Using nanoseconds + random + process ID for better uniqueness
+UUID="$(date +%s%N)-$$-$(( RANDOM % 10000 ))"
 
 # # Generate unique key name using UUID
 # UUID=$(uuidgen | tr '[:upper:]' '[:lower:]' | cut -c1-8)
@@ -224,7 +232,84 @@ fi
 # ──────────────────────────────────────────────────────────────
 # 5️⃣  show connection info and output credentials
 # ──────────────────────────────────────────────────────────────
+INSTANCE_ID="$(terraform output -raw instance_id)"
 IP="$(terraform output -raw public_ip)"
+
+echo "⌛ Waiting for instance ($INSTANCE_ID) to be ready..."
+
+# First wait for instance to be running
+aws ec2 wait instance-running --instance-ids "$INSTANCE_ID" --region "$REGION"
+
+# Then wait for SSM agent to come online (can take 1-2 minutes)
+echo "⏳ Waiting for SSM agent to come online..."
+MAX_ATTEMPTS=30
+ATTEMPT=0
+while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+  if aws ssm describe-instance-information \
+    --instance-information-filter-list "key=InstanceIds,valueSet=$INSTANCE_ID" \
+    --region "$REGION" \
+    --query "InstanceInformationList[0].PingStatus" \
+    --output text 2>/dev/null | grep -q "Online"; then
+    echo "✅ SSM agent is online"
+    break
+  fi
+  ATTEMPT=$((ATTEMPT + 1))
+  echo "⏳ Waiting for SSM agent... (attempt $ATTEMPT/$MAX_ATTEMPTS)"
+  sleep 10
+done
+
+if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
+  echo "❌ SSM agent failed to come online"
+  exit 1
+fi
+
+echo "⏳ Waiting for user-data script to complete..."
+
+# Now check for user-data completion
+ATTEMPTS=0
+MAX_ATTEMPTS=60  # 10 minutes max
+while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
+  # Send command to check file
+  # Note: SSM commands are automatically cleaned up by AWS after 30 days
+  COMMAND_ID=$(aws ssm send-command \
+    --document-name "AWS-RunShellScript" \
+    --instance-ids "$INSTANCE_ID" \
+    --parameters 'commands=["if [ -f /tmp/user-data-complete ]; then echo COMPLETE; else echo WAITING; fi"]' \
+    --region "$REGION" \
+    --query "Command.CommandId" \
+    --output text 2>/dev/null)
+  
+  if [ -z "$COMMAND_ID" ]; then
+    echo "⚠️  Failed to send SSM command, retrying..."
+    sleep 10
+    continue
+  fi
+  
+  # Wait for command to finish
+  sleep 5
+  
+  # Check command result
+  OUTPUT=$(aws ssm get-command-invocation \
+    --command-id "$COMMAND_ID" \
+    --instance-id "$INSTANCE_ID" \
+    --region "$REGION" \
+    --query "StandardOutputContent" \
+    --output text 2>/dev/null || echo "WAITING")
+  
+  if [ "$OUTPUT" == "COMPLETE" ]; then
+    echo "✅ User-data script has completed!"
+    break
+  fi
+  
+  ATTEMPTS=$((ATTEMPTS + 1))
+  echo "⏳ Still waiting for user-data to complete... (attempt $ATTEMPTS/$MAX_ATTEMPTS)"
+  sleep 10
+done
+
+if [ $ATTEMPTS -eq $MAX_ATTEMPTS ]; then
+  echo "❌ User-data script did not complete in time"
+  exit 1
+fi
 echo ""
 echo "=============================================="
 echo "🚀 Infrastructure deployed successfully!"
