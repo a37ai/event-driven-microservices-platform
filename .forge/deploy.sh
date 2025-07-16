@@ -346,85 +346,239 @@ echo "DEBUG: Waiting 60 seconds for services to fully start..."
 sleep 60
 
 echo "Extracting Jenkins credentials..."
-echo "DEBUG: SCRIPT_DIR: $SCRIPT_DIR"
-echo "DEBUG: Current directory: $(pwd)"
-echo "DEBUG: Script path: ${SCRIPT_DIR}/scripts/get-jenkins-credentials.sh"
-echo "DEBUG: Script exists: $(test -f "${SCRIPT_DIR}/scripts/get-jenkins-credentials.sh" && echo "YES" || echo "NO")"
-echo "DEBUG: Running Jenkins credential extraction..."
-if "${SCRIPT_DIR}/scripts/get-jenkins-credentials.sh" "${IP}" "edmp-key" > /tmp/jenkins_result.txt 2>&1; then
-    echo "DEBUG: Jenkins credential extraction completed successfully"
-    JENKINS_RESULT=$(cat /tmp/jenkins_result.txt)
-    echo "DEBUG: Jenkins result output:"
-    echo "$JENKINS_RESULT"
-    JENKINS_URL_EXTRACTED=$(echo "$JENKINS_RESULT" | grep "JENKINS_URL=" | cut -d'=' -f2-)
-    JENKINS_USER_EXTRACTED=$(echo "$JENKINS_RESULT" | grep "JENKINS_USER=" | cut -d'=' -f2-)
-    JENKINS_API_TOKEN_EXTRACTED=$(echo "$JENKINS_RESULT" | grep "JENKINS_API_TOKEN=" | cut -d'=' -f2-)
-    echo "DEBUG: Extracted values - URL: $JENKINS_URL_EXTRACTED, USER: $JENKINS_USER_EXTRACTED, TOKEN: $JENKINS_API_TOKEN_EXTRACTED"
-else
-    echo "DEBUG: Jenkins credential extraction failed"
-    echo "DEBUG: Jenkins result file contents:"
-    cat /tmp/jenkins_result.txt 2>/dev/null || echo "No result file found"
+echo "DEBUG: Using SSM to extract Jenkins credentials"
+
+# Wait for Jenkins to be ready using SSM
+echo "Waiting for Jenkins to be ready..."
+MAX_JENKINS_ATTEMPTS=30
+JENKINS_ATTEMPT=1
+
+while [ $JENKINS_ATTEMPT -le $MAX_JENKINS_ATTEMPTS ]; do
+    echo "DEBUG: Testing Jenkins connectivity via SSM - attempt $JENKINS_ATTEMPT"
+    
+    # Send SSM command to check Jenkins
+    CHECK_CMD_ID=$(aws ssm send-command \
+        --document-name "AWS-RunShellScript" \
+        --instance-ids "$INSTANCE_ID" \
+        --parameters 'commands=["curl -s http://localhost:8080/login > /dev/null && echo READY || echo WAITING"]' \
+        --region "$REGION" \
+        --query "Command.CommandId" \
+        --output text 2>/dev/null)
+    
+    if [ -n "$CHECK_CMD_ID" ]; then
+        sleep 5
+        CHECK_OUTPUT=$(aws ssm get-command-invocation \
+            --command-id "$CHECK_CMD_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --region "$REGION" \
+            --query "StandardOutputContent" \
+            --output text 2>/dev/null || echo "WAITING")
+        
+        if [ "$CHECK_OUTPUT" == "READY" ]; then
+            echo "✅ Jenkins is ready!"
+            break
+        fi
+    fi
+    
+    echo "⏳ Jenkins not ready yet... (attempt $JENKINS_ATTEMPT/$MAX_JENKINS_ATTEMPTS)"
+    sleep 10
+    JENKINS_ATTEMPT=$((JENKINS_ATTEMPT + 1))
+done
+
+if [ $JENKINS_ATTEMPT -gt $MAX_JENKINS_ATTEMPTS ]; then
+    echo "❌ Jenkins failed to start in time"
     JENKINS_URL_EXTRACTED=""
     JENKINS_USER_EXTRACTED=""
     JENKINS_API_TOKEN_EXTRACTED=""
+else
+    # Extract Jenkins password via SSM
+    echo "DEBUG: Getting Jenkins initial admin password via SSM..."
+    PWD_CMD_ID=$(aws ssm send-command \
+        --document-name "AWS-RunShellScript" \
+        --instance-ids "$INSTANCE_ID" \
+        --parameters 'commands=["docker exec $(docker ps -qf '\''name=jenkins'\'') cat /var/jenkins_home/secrets/initialAdminPassword 2>/dev/null || echo admin"]' \
+        --region "$REGION" \
+        --query "Command.CommandId" \
+        --output text 2>/dev/null)
+    
+    sleep 5
+    
+    JENKINS_PASSWORD=$(aws ssm get-command-invocation \
+        --command-id "$PWD_CMD_ID" \
+        --instance-id "$INSTANCE_ID" \
+        --region "$REGION" \
+        --query "StandardOutputContent" \
+        --output text 2>/dev/null | tr -d '\n' || echo "admin")
+    
+    echo "DEBUG: Jenkins password extracted: [hidden]"
+    
+    # Set extracted values
+    JENKINS_URL_EXTRACTED="$JENKINS_URL"
+    JENKINS_USER_EXTRACTED="admin"
+    JENKINS_API_TOKEN_EXTRACTED="$JENKINS_PASSWORD"
 fi
 
 echo "Extracting Nexus credentials..."
-echo "DEBUG: Attempting to extract Nexus password via SSH..."
-NEXUS_PASSWORD_EXTRACTED=$(ssh -i edmp-key -o StrictHostKeyChecking=no -o ConnectTimeout=30 ec2-user@${IP} \
-    "docker exec \$(docker ps -qf 'name=nexus') cat /nexus-data/admin.password 2>/dev/null | tr -d '\n' || echo 'extraction-failed'" 2>/dev/null || echo "ssh-failed")
-echo "DEBUG: Nexus password result: '$NEXUS_PASSWORD_EXTRACTED'"
+echo "DEBUG: Using SSM to extract Nexus credentials"
 
-if [ "$NEXUS_PASSWORD_EXTRACTED" != "extraction-failed" ] && [ "$NEXUS_PASSWORD_EXTRACTED" != "ssh-failed" ]; then
-    # Verify credentials work
-    NEXUS_TEST=$(ssh -i edmp-key -o StrictHostKeyChecking=no -o ConnectTimeout=30 ec2-user@${IP} \
-        "curl -u 'admin:${NEXUS_PASSWORD_EXTRACTED}' -s -o /dev/null -w '%{http_code}' http://localhost:8081/service/rest/v1/status" 2>/dev/null || echo "000")
+# Extract Nexus password via SSM
+NEXUS_CMD_ID=$(aws ssm send-command \
+    --document-name "AWS-RunShellScript" \
+    --instance-ids "$INSTANCE_ID" \
+    --parameters 'commands=["docker exec $(docker ps -qf '\''name=nexus'\'') cat /nexus-data/admin.password 2>/dev/null | tr -d '\''\n'\'' || echo extraction-failed"]' \
+    --region "$REGION" \
+    --query "Command.CommandId" \
+    --output text 2>/dev/null)
+
+if [ -n "$NEXUS_CMD_ID" ]; then
+    sleep 5
+    NEXUS_PASSWORD_EXTRACTED=$(aws ssm get-command-invocation \
+        --command-id "$NEXUS_CMD_ID" \
+        --instance-id "$INSTANCE_ID" \
+        --region "$REGION" \
+        --query "StandardOutputContent" \
+        --output text 2>/dev/null || echo "ssm-failed")
+else
+    NEXUS_PASSWORD_EXTRACTED="ssm-failed"
+fi
+
+echo "DEBUG: Nexus password result: [hidden]"
+
+if [ "$NEXUS_PASSWORD_EXTRACTED" != "extraction-failed" ] && [ "$NEXUS_PASSWORD_EXTRACTED" != "ssm-failed" ]; then
+    # Verify credentials work via SSM
+    VERIFY_CMD_ID=$(aws ssm send-command \
+        --document-name "AWS-RunShellScript" \
+        --instance-ids "$INSTANCE_ID" \
+        --parameters "commands=[\"curl -u 'admin:${NEXUS_PASSWORD_EXTRACTED}' -s -o /dev/null -w '%{http_code}' http://localhost:8081/service/rest/v1/status\"]" \
+        --region "$REGION" \
+        --query "Command.CommandId" \
+        --output text 2>/dev/null)
+    
+    if [ -n "$VERIFY_CMD_ID" ]; then
+        sleep 5
+        NEXUS_TEST=$(aws ssm get-command-invocation \
+            --command-id "$VERIFY_CMD_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --region "$REGION" \
+            --query "StandardOutputContent" \
+            --output text 2>/dev/null || echo "000")
+    else
+        NEXUS_TEST="000"
+    fi
     
     if [ "$NEXUS_TEST" = "200" ]; then
-        echo "Nexus credentials verified successfully"
+        echo "✅ Nexus credentials verified successfully"
         NEXUS_URL_EXTRACTED="$NEXUS_URL"
         NEXUS_USERNAME_EXTRACTED="admin"
     else
-        echo "Nexus credential verification failed"
+        echo "❌ Nexus credential verification failed"
         NEXUS_PASSWORD_EXTRACTED="verification-failed"
         NEXUS_URL_EXTRACTED=""
         NEXUS_USERNAME_EXTRACTED=""
     fi
 else
-    echo "Nexus credential extraction failed"
+    echo "❌ Nexus credential extraction failed"
     NEXUS_URL_EXTRACTED=""
     NEXUS_USERNAME_EXTRACTED=""
 fi
 
 echo "Extracting Grafana credentials..."
-GRAFANA_API_KEY_EXTRACTED=$(ssh -i edmp-key -o StrictHostKeyChecking=no -o ConnectTimeout=30 ec2-user@${IP} "
-# First verify Grafana is accessible
-if curl -u 'admin:admin' -s http://localhost:10001/api/user > /dev/null 2>&1; then
-    # Create service account
-    SA_RESPONSE=\$(curl -u 'admin:admin' -X POST http://localhost:10001/api/serviceaccounts \
-        -H 'Content-Type: application/json' \
-        -d '{\"name\":\"deploy-script\",\"role\":\"Admin\",\"isDisabled\":false}' -s 2>/dev/null)
+echo "DEBUG: Using SSM to extract Grafana credentials"
+
+# First verify Grafana is accessible via SSM
+echo "Checking Grafana availability..."
+GRAFANA_CHECK_CMD_ID=$(aws ssm send-command \
+    --document-name "AWS-RunShellScript" \
+    --instance-ids "$INSTANCE_ID" \
+    --parameters 'commands=["curl -u '\''admin:admin'\'' -s http://localhost:10001/api/user > /dev/null 2>&1 && echo ACCESSIBLE || echo NOT_ACCESSIBLE"]' \
+    --region "$REGION" \
+    --query "Command.CommandId" \
+    --output text 2>/dev/null)
+
+if [ -n "$GRAFANA_CHECK_CMD_ID" ]; then
+    sleep 5
+    GRAFANA_STATUS=$(aws ssm get-command-invocation \
+        --command-id "$GRAFANA_CHECK_CMD_ID" \
+        --instance-id "$INSTANCE_ID" \
+        --region "$REGION" \
+        --query "StandardOutputContent" \
+        --output text 2>/dev/null || echo "NOT_ACCESSIBLE")
+else
+    GRAFANA_STATUS="NOT_ACCESSIBLE"
+fi
+
+if [ "$GRAFANA_STATUS" == "ACCESSIBLE" ]; then
+    echo "✅ Grafana is accessible, creating service account..."
     
-    # Extract service account ID
-    SA_ID=\$(echo \"\$SA_RESPONSE\" | grep -o '\"id\":[0-9]*' | cut -d':' -f2)
+    # Create service account via SSM
+    SA_CREATE_CMD_ID=$(aws ssm send-command \
+        --document-name "AWS-RunShellScript" \
+        --instance-ids "$INSTANCE_ID" \
+        --parameters 'commands=["curl -u '\''admin:admin'\'' -X POST http://localhost:10001/api/serviceaccounts -H '\''Content-Type: application/json'\'' -d '\''{\"name\":\"deploy-script\",\"role\":\"Admin\",\"isDisabled\":false}'\'' -s 2>/dev/null"]' \
+        --region "$REGION" \
+        --query "Command.CommandId" \
+        --output text 2>/dev/null)
     
-    if [ -n \"\$SA_ID\" ]; then
-        # Create API token
-        TOKEN_RESPONSE=\$(curl -u 'admin:admin' -X POST http://localhost:10001/api/serviceaccounts/\${SA_ID}/tokens \
-            -H 'Content-Type: application/json' \
-            -d '{\"name\":\"deploy-token\"}' -s 2>/dev/null)
+    if [ -n "$SA_CREATE_CMD_ID" ]; then
+        sleep 5
+        SA_RESPONSE=$(aws ssm get-command-invocation \
+            --command-id "$SA_CREATE_CMD_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --region "$REGION" \
+            --query "StandardOutputContent" \
+            --output text 2>/dev/null || echo "{}")
         
-        # Extract API key
-        echo \"\$TOKEN_RESPONSE\" | grep -o '\"key\":\"[^\"]*' | cut -d'\"' -f4 || echo 'token-extraction-failed'
+        # Extract service account ID
+        SA_ID=$(echo "$SA_RESPONSE" | grep -o '"id":[0-9]*' | cut -d':' -f2)
+        
+        if [ -n "$SA_ID" ]; then
+            echo "DEBUG: Service account created with ID: $SA_ID"
+            
+            # Create API token via SSM
+            TOKEN_CREATE_CMD_ID=$(aws ssm send-command \
+                --document-name "AWS-RunShellScript" \
+                --instance-ids "$INSTANCE_ID" \
+                --parameters "commands=[\"curl -u 'admin:admin' -X POST http://localhost:10001/api/serviceaccounts/${SA_ID}/tokens -H 'Content-Type: application/json' -d '{\\\"name\\\":\\\"deploy-token\\\"}' -s 2>/dev/null\"]" \
+                --region "$REGION" \
+                --query "Command.CommandId" \
+                --output text 2>/dev/null)
+            
+            if [ -n "$TOKEN_CREATE_CMD_ID" ]; then
+                sleep 5
+                TOKEN_RESPONSE=$(aws ssm get-command-invocation \
+                    --command-id "$TOKEN_CREATE_CMD_ID" \
+                    --instance-id "$INSTANCE_ID" \
+                    --region "$REGION" \
+                    --query "StandardOutputContent" \
+                    --output text 2>/dev/null || echo "{}")
+                
+                # Extract API key
+                GRAFANA_API_KEY_EXTRACTED=$(echo "$TOKEN_RESPONSE" | grep -o '"key":"[^"]*' | cut -d'"' -f4)
+                
+                if [ -z "$GRAFANA_API_KEY_EXTRACTED" ]; then
+                    echo "❌ Failed to extract API key from response"
+                    GRAFANA_API_KEY_EXTRACTED="token-extraction-failed"
+                else
+                    echo "✅ Grafana API key extracted successfully"
+                fi
+            else
+                echo "❌ Failed to create API token"
+                GRAFANA_API_KEY_EXTRACTED="token-creation-failed"
+            fi
+        else
+            echo "❌ Failed to extract service account ID"
+            GRAFANA_API_KEY_EXTRACTED="service-account-creation-failed"
+        fi
     else
-        echo 'service-account-creation-failed'
+        echo "❌ Failed to create service account"
+        GRAFANA_API_KEY_EXTRACTED="service-account-creation-failed"
     fi
 else
-    echo 'grafana-not-accessible'
+    echo "❌ Grafana is not accessible"
+    GRAFANA_API_KEY_EXTRACTED="grafana-not-accessible"
 fi
-" 2>/dev/null || echo "ssh-failed")
 
-if [ "$GRAFANA_API_KEY_EXTRACTED" != "token-extraction-failed" ] && [ "$GRAFANA_API_KEY_EXTRACTED" != "service-account-creation-failed" ] && [ "$GRAFANA_API_KEY_EXTRACTED" != "grafana-not-accessible" ] && [ "$GRAFANA_API_KEY_EXTRACTED" != "ssh-failed" ]; then
+if [ "$GRAFANA_API_KEY_EXTRACTED" != "token-extraction-failed" ] && [ "$GRAFANA_API_KEY_EXTRACTED" != "token-creation-failed" ] && [ "$GRAFANA_API_KEY_EXTRACTED" != "service-account-creation-failed" ] && [ "$GRAFANA_API_KEY_EXTRACTED" != "grafana-not-accessible" ]; then
     echo "Grafana API key generated successfully"
     GRAFANA_URL_EXTRACTED="$GRAFANA_URL"
 else
@@ -435,18 +589,54 @@ fi
 # Fallback: Direct credential extraction if scripts failed
 if [ -z "$JENKINS_API_TOKEN_EXTRACTED" ] || [ "$JENKINS_API_TOKEN_EXTRACTED" = "jenkins-extraction-failed" ]; then
     echo "Attempting fallback Jenkins credential extraction..."
-    JENKINS_PASSWORD_FALLBACK=$(ssh -i edmp-key -o StrictHostKeyChecking=no -o ConnectTimeout=30 ec2-user@${IP} \
-        "docker exec \$(docker ps -qf 'name=jenkins') cat /var/jenkins_home/secrets/initialAdminPassword 2>/dev/null || echo 'fallback-failed'" 2>/dev/null || echo "ssh-failed")
-    if [ "$JENKINS_PASSWORD_FALLBACK" != "fallback-failed" ] && [ "$JENKINS_PASSWORD_FALLBACK" != "ssh-failed" ]; then
+    FALLBACK_JENKINS_CMD_ID=$(aws ssm send-command \
+        --document-name "AWS-RunShellScript" \
+        --instance-ids "$INSTANCE_ID" \
+        --parameters 'commands=["docker exec $(docker ps -qf '\''name=jenkins'\'') cat /var/jenkins_home/secrets/initialAdminPassword 2>/dev/null || echo fallback-failed"]' \
+        --region "$REGION" \
+        --query "Command.CommandId" \
+        --output text 2>/dev/null)
+    
+    if [ -n "$FALLBACK_JENKINS_CMD_ID" ]; then
+        sleep 5
+        JENKINS_PASSWORD_FALLBACK=$(aws ssm get-command-invocation \
+            --command-id "$FALLBACK_JENKINS_CMD_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --region "$REGION" \
+            --query "StandardOutputContent" \
+            --output text 2>/dev/null | tr -d '\n' || echo "ssm-failed")
+    else
+        JENKINS_PASSWORD_FALLBACK="ssm-failed"
+    fi
+    
+    if [ "$JENKINS_PASSWORD_FALLBACK" != "fallback-failed" ] && [ "$JENKINS_PASSWORD_FALLBACK" != "ssm-failed" ]; then
         JENKINS_API_TOKEN_EXTRACTED="password-${JENKINS_PASSWORD_FALLBACK}"
     fi
 fi
 
 if [ -z "$NEXUS_PASSWORD_EXTRACTED" ] || [ "$NEXUS_PASSWORD_EXTRACTED" = "nexus-extraction-failed" ]; then
     echo "Attempting fallback Nexus credential extraction..."
-    NEXUS_PASSWORD_FALLBACK=$(ssh -i edmp-key -o StrictHostKeyChecking=no -o ConnectTimeout=30 ec2-user@${IP} \
-        "docker exec \$(docker ps -qf 'name=nexus') cat /nexus-data/admin.password 2>/dev/null | tr -d '\n' || echo 'fallback-failed'" 2>/dev/null || echo "ssh-failed")
-    if [ "$NEXUS_PASSWORD_FALLBACK" != "fallback-failed" ] && [ "$NEXUS_PASSWORD_FALLBACK" != "ssh-failed" ]; then
+    FALLBACK_NEXUS_CMD_ID=$(aws ssm send-command \
+        --document-name "AWS-RunShellScript" \
+        --instance-ids "$INSTANCE_ID" \
+        --parameters 'commands=["docker exec $(docker ps -qf '\''name=nexus'\'') cat /nexus-data/admin.password 2>/dev/null | tr -d '\''\n'\'' || echo fallback-failed"]' \
+        --region "$REGION" \
+        --query "Command.CommandId" \
+        --output text 2>/dev/null)
+    
+    if [ -n "$FALLBACK_NEXUS_CMD_ID" ]; then
+        sleep 5
+        NEXUS_PASSWORD_FALLBACK=$(aws ssm get-command-invocation \
+            --command-id "$FALLBACK_NEXUS_CMD_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --region "$REGION" \
+            --query "StandardOutputContent" \
+            --output text 2>/dev/null | tr -d '\n' || echo "ssm-failed")
+    else
+        NEXUS_PASSWORD_FALLBACK="ssm-failed"
+    fi
+    
+    if [ "$NEXUS_PASSWORD_FALLBACK" != "fallback-failed" ] && [ "$NEXUS_PASSWORD_FALLBACK" != "ssm-failed" ]; then
         NEXUS_PASSWORD_EXTRACTED="$NEXUS_PASSWORD_FALLBACK"
     fi
 fi
