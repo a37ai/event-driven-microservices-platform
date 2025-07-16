@@ -12,6 +12,11 @@ provider "aws" {
   region  = var.aws_region
 }
 
+# Random ID for unique resource names
+resource "random_id" "id" {
+  byte_length = 8
+}
+
 # Get default VPC and subnets (no permissions needed to create VPC)
 data "aws_vpc" "default" {
   default = true
@@ -146,6 +151,31 @@ data "aws_ami" "amazon_linux" {
   }
 }
 
+# IAM Role for EC2 to allow SSM to manage it
+resource "aws_iam_role" "edmp_ssm_role" {
+  name = "edmp-ssm-role-${random_id.id.hex}"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = {
+        Service = "ec2.amazonaws.com"
+      }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "ssm_policy_attachment" {
+  role       = aws_iam_role.edmp_ssm_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+resource "aws_iam_instance_profile" "edmp_instance_profile" {
+  name = "edmp-instance-profile-${random_id.id.hex}"
+  role = aws_iam_role.edmp_ssm_role.name
+}
+
 # Simple EC2 instance to run docker containers
 resource "aws_instance" "edmp_server" {
   ami           = data.aws_ami.amazon_linux.id
@@ -158,30 +188,12 @@ resource "aws_instance" "edmp_server" {
   key_name = data.aws_key_pair.edmp_key.key_name
   
   user_data = file("${path.module}/user-data-complete.sh")
+  iam_instance_profile = aws_iam_instance_profile.edmp_instance_profile.name
 
   tags = {
     Name = "edmp-server"
     Environment = var.environment
   }
-
-  # Remote exec provisioner to ensure services are ready
-  provisioner "remote-exec" {
-    inline = [
-      "echo 'Waiting for user-data script to complete...'",
-      "while [ ! -f /tmp/user-data-complete ]; do sleep 10; done",
-      "echo 'User-data script completed successfully'"
-    ]
-
-    connection {
-      type        = "ssh"
-      user        = "ec2-user"
-      private_key = file("${path.module}/edmp-key")
-      host        = self.public_ip
-      timeout     = "10m"
-      agent       = false
-    }
-  }
 }
 
-
-# RDS removed - using embedded H2 database for SonarQube
+# RDS removed - using embedded H2 database
