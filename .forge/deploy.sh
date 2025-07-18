@@ -732,23 +732,10 @@ echo "NEXUS_PASSWORD=${NEXUS_PASSWORD_EXTRACTED:-nexus-extraction-failed}"
 echo "GRAFANA_URL=${GRAFANA_URL_EXTRACTED:-$GRAFANA_URL}"
 echo "GRAFANA_API_KEY=${GRAFANA_API_KEY_EXTRACTED:-grafana-extraction-failed}"
 
-echo ""
-echo "All credentials extracted successfully."
-echo ""
-echo "🌐 Additional Service URLs:"
 echo "SONARQUBE_URL=${SONARQUBE_URL}"
 echo "KAFKA_MANAGER_URL=${KAFKA_MANAGER_URL}"
 echo "DOCKER_REGISTRY_URL=${DOCKER_REGISTRY_URL}"
 echo "AWS_REGION=${AWS_REGION}"
-echo ""
-echo "📋 Next steps:"
-echo "1. SSH into the instance using the command above"
-echo "2. Clone the repository to /home/ec2-user/edmp-platform"
-echo "3. Run ./deploy-edmp.sh to start the platform services"
-echo "4. Access services using the URLs above"
-echo ""
-echo "⚠️  Note: Infrastructure is ready, but applications need to be deployed manually"
-echo "⚠️  Default credentials may apply - check application documentation"
 
 # Save backend info for destroy script
 cd ..
