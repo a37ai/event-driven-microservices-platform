@@ -267,7 +267,7 @@ echo "⏳ Waiting for user-data script to complete..."
 
 # Now check for user-data completion
 ATTEMPTS=0
-MAX_ATTEMPTS=60  # 10 minutes max
+MAX_ATTEMPTS=100
 while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
   # Send command to check file
   # Note: SSM commands are automatically cleaned up by AWS after 30 days
