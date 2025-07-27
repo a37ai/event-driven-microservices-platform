@@ -1,5 +1,5 @@
 #!/bin/bash
-# Event-Driven Microservices Platform - Complete EC2 Initialization and Auto-Deploy Script
+# Event-Driven Microservices Platform - Minimal EC2 Initialization (Registry + Grafana only)
 # This script runs automatically on EC2 instance startup and deploys the platform
 
 set -e
@@ -7,7 +7,7 @@ set -e
 # Redirect all output to log file
 exec > >(tee /var/log/user-data.log) 2>&1
 
-echo "Starting complete EDMP initialization and auto-deployment..."
+echo "Starting minimal EDMP initialization (Registry + Grafana only)..."
 
 # Update system packages
 echo "Updating system packages..."
@@ -66,18 +66,13 @@ chown -R ec2-user:ec2-user /home/ec2-user/edmp-platform
 
 # Pre-pull Docker images to speed up deployment
 echo "Pre-pulling Docker images..."
-docker pull postgres:latest
 docker pull registry:latest
-docker pull nginx:alpine
-docker pull spotify/kafka:latest
-docker pull sheepkiller/kafka-manager:latest
-docker pull sonatype/nexus3:latest
-docker pull jenkins/jenkins:lts
-docker pull sonarqube:9.0-community
+docker pull grafana/grafana:latest
 
 # Create necessary volumes
 echo "Creating Docker volumes..."
 docker volume create registry-stuff || true
+docker volume create grafana-storage || true
 
 # Get the public IP of this instance
 PUBLIC_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
@@ -86,9 +81,10 @@ echo "Your IP is: $PUBLIC_IP"
 # Change to the platform directory
 cd /home/ec2-user/edmp-platform
 
-# Create the docker-compose file with the exact format you specified
+# Create the docker-compose file with only Registry and Grafana
 echo "Creating docker-compose configuration..."
-echo "version: '2'
+cat > docker-compose-dev.yml << EOF
+version: '2'
 networks:
   prodnetwork:
     driver: bridge
@@ -97,96 +93,38 @@ volumes:
     driver: local
   grafana-storage:
     driver: local
-  jenkins_home:
-    driver: local
 services:
-  kafka:
-    image: spotify/kafka
-    ports:
-      - \"2181:2181\"
-      - \"9092:9092\"
-      - \"7209:7209\"
-    environment:
-      JMX_PORT: 7209
-      ADVERTISED_HOST: $PUBLIC_IP
-      ADVERTISED_PORT: 9092
-    networks:
-      - prodnetwork
-  kafka-manager:
-    image: sheepkiller/kafka-manager
-    ports:
-      - \"9001:9000\"
-    environment:
-      ZK_HOSTS: kafka:2181
-    networks:
-      - prodnetwork
-    depends_on:
-      - kafka
-  nexus:
-    image: sonatype/nexus3:latest
-    ports:
-      - \"8081:8081\"
-    networks:
-      - prodnetwork
-  jenkins:
-    image: jenkins/jenkins:lts
-    ports:
-      - \"8080:8080\"
-    environment:
-      - JAVA_OPTS=-Djenkins.install.runSetupWizard=false -Djenkins.security.csrf.protection=true
-      - JENKINS_ADMIN_ID=admin
-      - JENKINS_ADMIN_PASSWORD=admin123
-    volumes:
-      - jenkins_home:/var/jenkins_home
-    networks:
-      - prodnetwork
   registry:
     image: registry
     ports:
-      - \"5000:5000\"
+      - "5000:5000"
     networks:
       - prodnetwork
-  sonar:
-    image: sonarqube:9.0-community
-    ports:
-      - \"9000:9000\"
-    environment:
-      - SONARQUBE_JDBC_URL=jdbc:postgresql://sonardb:5432/sonar
-    depends_on:
-      - sonardb
-    networks:
-      - prodnetwork
-  sonardb:
-    image: postgres
-    ports:
-      - \"5432:5432\"
-    environment:
-      - POSTGRES_USER=sonar
-      - POSTGRES_PASSWORD=sonar
-    networks:
-      - prodnetwork
+    volumes:
+      - registry-stuff:/var/lib/registry
   grafana:
     image: grafana/grafana:latest
     ports:
-      - \"10001:3000\"
+      - "10001:3000"
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin
       - GF_SECURITY_ADMIN_USER=admin
     networks:
       - prodnetwork
     volumes:
-      - grafana-storage:/var/lib/grafana" > docker-compose-dev.yml
+      - grafana-storage:/var/lib/grafana
+EOF
 
 # Set ownership
 chown ec2-user:ec2-user docker-compose-dev.yml
 
 # Deploy the platform automatically
-echo "Deploying EDMP Platform..."
+echo "Deploying minimal EDMP Platform..."
 docker-compose -f docker-compose-dev.yml up -d
 
 # Wait for services to be ready
 echo "Waiting for services to start..."
-sleep 60
+sleep 30
 
 # Check service status
 echo "Checking service status..."
@@ -199,25 +137,15 @@ docker ps -a
 # Display service URLs
 echo ""
 echo "=============================================="
-echo "🚀 EDMP Platform deployed successfully!"
+echo "🚀 Minimal EDMP Platform deployed successfully!"
 echo "=============================================="
 echo ""
 echo "Services available at:"
-echo "Jenkins: http://$PUBLIC_IP:8080"
-echo "Nexus: http://$PUBLIC_IP:8081"
-echo "SonarQube: http://$PUBLIC_IP:9000"
-echo "Kafka Manager: http://$PUBLIC_IP:9001"
 echo "Registry: http://$PUBLIC_IP:5000"
 echo "Grafana: http://$PUBLIC_IP:10001"
 echo ""
-echo "Kafka Bootstrap: $PUBLIC_IP:9092"
-echo "Zookeeper: $PUBLIC_IP:2181"
-echo ""
 echo "=============================================="
 echo "Default Credentials:"
-echo "Jenkins:    admin/[see initial password]"
-echo "SonarQube:  admin/admin"
-echo "Nexus:      admin/[see admin.password]"
 echo "Grafana:    admin/admin"
 echo "=============================================="
 
@@ -250,7 +178,7 @@ EOF
 
 chown ec2-user:ec2-user /home/ec2-user/.bashrc
 
-echo "✅ EDMP Platform initialization and deployment completed successfully!"
+echo "✅ Minimal EDMP Platform initialization and deployment completed successfully!"
 echo "User-data script completed at $(date)"
 
 # Create completion marker for remote-exec provisioner
