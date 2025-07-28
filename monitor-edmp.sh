@@ -44,8 +44,6 @@ PUBLIC_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
 echo ""
 echo "Service Health Check:"
 services=(
-    "Jenkins:8080"
-    "Nexus:8081"
     "SonarQube:9000"
     "Kafka Manager:9001"
     "Monitoring:10001"
@@ -64,8 +62,6 @@ done
 
 echo ""
 echo "Service URLs:"
-echo "Jenkins:        http://$PUBLIC_IP:8080"
-echo "Nexus:          http://$PUBLIC_IP:8081"
 echo "SonarQube:      http://$PUBLIC_IP:9000"
 echo "Kafka Manager:  http://$PUBLIC_IP:9001"
 echo "Monitoring:     http://$PUBLIC_IP:10001"

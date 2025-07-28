@@ -17,8 +17,6 @@ The deployment creates:
 
 ### Microservices (via Kubernetes)
 - **Kafka + Zookeeper** - Message streaming platform
-- **Jenkins** - CI/CD pipeline server
-- **Nexus** - Artifact repository manager  
 - **SonarQube** - Code quality analysis
 - **Spring Boot Admin** - Monitoring dashboard
 - **Docker Registry** - Container image storage
@@ -82,13 +80,7 @@ The deployment process:
 ```
 🚀 Your microservices platform is now running on AWS EKS!
 
-JENKINS_URL=http://ab123-jenkins-lb.us-east-1.elb.amazonaws.com:8080
-JENKINS_USER=admin
-JENKINS_API_TOKEN=abc123def456
 
-NEXUS_URL=http://ab123-nexus-lb.us-east-1.elb.amazonaws.com:8081
-NEXUS_USERNAME=admin
-NEXUS_PASSWORD=admin123
 
 SONARQUBE_URL=http://ab123-sonar-lb.us-east-1.elb.amazonaws.com:9000
 KAFKA_MANAGER_URL=http://ab123-kafka-mgr-lb.us-east-1.elb.amazonaws.com:9000
@@ -111,10 +103,8 @@ kubectl get svc -n edmp
 ```
 
 ### Access Services
-- **Jenkins**: Use the provided URL and admin credentials
 - **SonarQube**: Default login is admin/admin
 - **Kafka Manager**: Add cluster with Zookeeper: `zookeeper.edmp.svc.cluster.local:2181`
-- **Nexus**: Browse repositories and artifacts
 - **Spring Boot Admin**: Monitor registered applications
 
 ## 🗑️ Cleanup
@@ -186,7 +176,6 @@ kubectl get pods -n kube-system | grep aws-load-balancer
 The platform includes built-in monitoring:
 - **Spring Boot Admin** - Application health
 - **Kafka Manager** - Message streaming metrics
-- **Jenkins** - Build pipeline status
 - **SonarQube** - Code quality metrics
 
 Additional monitoring via:

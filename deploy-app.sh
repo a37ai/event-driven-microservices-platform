@@ -46,18 +46,7 @@ services:
       - prodnetwork
     depends_on:
       - kafka
-  nexus:
-    image: sonatype/nexus3:latest
-    ports:
-      - "8081:8081"
-    networks:
-      - prodnetwork
-  jenkins:
-    image: jenkins/jenkins:lts
-    ports:
-      - "8080:8080"
-    networks:
-      - prodnetwork
+
   registry:
     image: registry
     ports:
@@ -154,15 +143,7 @@ echo "This may take a few minutes..."
 # Check critical services
 failed_services=()
 
-# Check Jenkins
-if ! check_service "Jenkins" "$PUBLIC_IP" "8080"; then
-    failed_services+=("Jenkins")
-fi
 
-# Check Nexus
-if ! check_service "Nexus" "$PUBLIC_IP" "8081"; then
-    failed_services+=("Nexus")
-fi
 
 # Check SonarQube
 if ! check_service "SonarQube" "$PUBLIC_IP" "9000"; then
@@ -214,8 +195,6 @@ echo "🚀 EDMP Platform deployed successfully!"
 echo "=============================================="
 echo ""
 echo "Service URLs:"
-echo "Jenkins:        http://$PUBLIC_IP:8080"
-echo "Nexus:          http://$PUBLIC_IP:8081"
 echo "SonarQube:      http://$PUBLIC_IP:9000"
 echo "Kafka Manager:  http://$PUBLIC_IP:9001"
 echo "Monitoring:     http://$PUBLIC_IP:10001"
@@ -226,7 +205,5 @@ echo "Zookeeper:       $PUBLIC_IP:2181"
 echo ""
 echo "=============================================="
 echo "Default Credentials:"
-echo "Jenkins:    admin/admin"
 echo "SonarQube:  admin/admin"
-echo "Nexus:      admin/admin123"
 echo "=============================================="

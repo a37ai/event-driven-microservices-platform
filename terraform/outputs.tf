@@ -20,15 +20,7 @@ output "server_public_dns" {
 
 # RDS removed - using embedded H2 database
 
-output "jenkins_url" {
-  description = "Jenkins URL"
-  value       = "http://${aws_instance.edmp_server.public_ip}:8080"
-}
 
-output "nexus_url" {
-  description = "Nexus URL"
-  value       = "http://${aws_instance.edmp_server.public_ip}:8081"
-}
 
 output "sonarqube_url" {
   description = "SonarQube URL"

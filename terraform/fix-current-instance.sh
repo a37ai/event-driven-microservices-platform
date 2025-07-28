@@ -30,8 +30,6 @@ networks:
     driver: bridge
 
 volumes:
-  jenkins-data:
-  nexus-data:
   sonar-data:
   registry-data:
 
@@ -76,32 +74,7 @@ services:
       - zookeeper
     restart: unless-stopped
 
-  jenkins:
-    image: jenkins/jenkins:2.401.3-lts
-    platform: linux/amd64
-    ports:
-      - "8080:8080"
-      - "50000:50000"
-    environment:
-      JAVA_OPTS: "-Xmx1024m -Xms512m -Djenkins.install.runSetupWizard=false"
-    volumes:
-      - jenkins-data:/var/jenkins_home
-      - /var/run/docker.sock:/var/run/docker.sock
-    networks:
-      - prodnetwork
-    user: root
-    restart: unless-stopped
 
-  nexus:
-    image: sonatype/nexus3:3.45.0
-    platform: linux/amd64
-    ports:
-      - "8081:8081"
-    volumes:
-      - nexus-data:/nexus-data
-    networks:
-      - prodnetwork
-    restart: unless-stopped
 
   registry:
     image: registry:2

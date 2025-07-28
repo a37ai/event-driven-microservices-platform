@@ -5,14 +5,14 @@ Playing around with Event Driven Architectures is hard! The goal of this project
 Everything is based on Docker, so basically we boot a lot of stuff on startup via docker-compose. Let's have a deeper look. There is
 ### Kafka and Zookeeper
 If you do EDA the messaging way you need a broker. A broker that's able to replay messages, that has persistent messages, a broker that's scalable and highly available - in short: you need Kafka. 
-### Jenkins, Sonar and Nexus
-We included a build and deployment pipeline. Jobs are added to Jenkins via Job DSL, which creates CI-, Sonar- and Docker-Build-and-Deployment-Jobs for each microservice specified in one simple configuration file (https://github.com/codecentric/event-driven-microservices-platform-config/blob/master/edmp-project-configuration.json). That way you just create a Maven-based microservice in a new Github repository, add it to the configuration file above and our Jenkins-Job-DSL-Seedjob will pick it up, create jobs for it and deploy it on every change.
+### Docker Registry and Monitoring
+We provide a Docker registry for storing container images and Grafana for monitoring and observability.
 ### Spring Boot Admin
 If the microservice happens to be a Spring Boot based microservice, it can be automatically registered in our always running Spring Boot Admin instance for easy monitoring.
 ### Spring Cloud Config Server
 Spring Cloud Config exposes a Github repository as a central place for configuration data, and that data can be consumed via a REST API. Of course, if you're using Spring Boot, there's a convenient way to consume this data via a special Spring Boot starter.
 ### Sample apps
-There are three sample apps to get you started - two Spring Cloud Stream applications that write / read to / from Kafka, and one standalone application that uses its own private Redis. These sample apps are not started by docker-compose but by automatically generated Jenkins jobs.
+There are three sample apps to get you started - two Spring Cloud Stream applications that write / read to / from Kafka, and one standalone application that uses its own private Redis. These sample apps can be started manually via docker-compose.
 
 ## Project Overview
 
@@ -22,12 +22,8 @@ The following diagram gives a quick overview of the different tools we are using
 
 What are the tools used for?
 
-* Jenkins
-  * Job DSL generates Build & Deploy Jobs for all Microservices
-  * Build & Deploys Microservices
-  * Builds / Starts / Stops Docker Container
-* Nexus
-  * Stores Build Artifacts
+* Docker Registry
+  * Stores Docker container images
 * SonarQube
   * Stores Static Code Analysis Results
 * Kafka / Zookeeper Server
@@ -111,21 +107,7 @@ If you want to use your own Github repository for the EDMP configuration file an
     environment:
       CONFIG_REPO: "https://github.com/codecentric/event-driven-microservices-platform-config.git"
 ```
-Then, change the EDMP_CONFIG_URL environment variable for jenkins according to your needs:
-```
-  jenkins:
-    image: codecentric/edmp-jenkins:0.1
-    ports:
-      - "18080:8080"
-    links:
-      - nexus:nexus
-      - sonar:sonar
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - /usr/local/bin/docker:/usr/bin/docker
-    environment:
-      EDMP_CONFIG_URL: "https://raw.githubusercontent.com/codecentric/event-driven-microservices-platform-config/master/edmp-project-configuration.json"
-```
+
 
 
 For local development build the local images first and start them using:
@@ -139,9 +121,7 @@ $ docker-compose -f docker-compose-dev.yml up
 
 | *Tool* | *Link* | *Credentials* |
 | ------------- | ------------- | ------------- |
-| Jenkins | http://${docker-machine ip default}:18080/ | no login required |
 | SonarQube | http://${docker-machine ip default}:19000/ | admin/admin |
-| Nexus | http://${docker-machine ip default}:18081/nexus | admin/admin123 |
 | Docker Registry | http://${docker-machine ip default}:5000/ | |
 | Spring Boot Admin | http://${docker-machine ip default}:10001/ | |
 | Spring Cloud Config Server | http://${docker-machine ip default}:18888/${applicationname}/master | |
@@ -187,14 +167,13 @@ $ sudo /etc/init.d/docker restart
 # Event-Driven Microservices Platform
 
 ## Project Overview
-This repository contains everything needed to deploy an event-driven microservices platform powered by Kafka, Jenkins, SonarQube, Nexus, and monitoring stacks on AWS.
+This repository contains everything needed to deploy a minimal event-driven microservices platform powered by Kafka, with Docker registry and Grafana monitoring on AWS.
 
 Key components:
 - **Kafka** for distributed event streaming
-- **Jenkins** for CI/CD pipelines
 - **SonarQube** for code quality analysis
-- **Nexus** as artifact repository
-- **Prometheus/Grafana** for monitoring and alerting
+- **Docker Registry** for container image storage
+- **Grafana** for monitoring and observability
 
 ## Architecture
 
@@ -212,7 +191,7 @@ Key components:
              │Applications  │            │Applications │
              └──────┬───────┘            └──────┬──────┘
                     ▼                           ▼
-      Jenkins, SonarQube, Nexus           Monitoring (Prometheus/Grafana)
+          Docker Registry               Monitoring (Grafana)
 ```
 
 ## Prerequisites
@@ -250,8 +229,8 @@ Key components:
    ```
 
 ## Usage
-- Access Jenkins at `http://<jenkins-domain>`
-- Access Nexus at `http://<nexus-domain>`
+- Access Grafana at `http://<grafana-domain>`
+- Access Docker Registry at `http://<registry-domain>`
 - Produce and consume Kafka messages via provided scripts under `k8s/`.
 
 ## Cleanup

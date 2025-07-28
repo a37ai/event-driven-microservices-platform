@@ -50,8 +50,6 @@ SERVER_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
 echo "Server IP: $SERVER_IP"
 
 # Check each service
-check_service "Jenkins" "http://localhost:8080"
-check_service "Nexus" "http://localhost:8081"
 check_service "SonarQube" "http://localhost:9000"
 check_service "Kafka Manager" "http://localhost:9001"
 check_service "Spring Boot Admin" "http://localhost:10001"
