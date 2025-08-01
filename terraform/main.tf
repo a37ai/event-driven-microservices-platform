@@ -17,6 +17,12 @@ resource "random_id" "id" {
   byte_length = 8
 }
 
+# Random subnet selection for better AZ distribution
+resource "random_shuffle" "subnet" {
+  input        = data.aws_subnets.default.ids
+  result_count = 1
+}
+
 # Get default VPC and subnets (no permissions needed to create VPC)
 data "aws_vpc" "default" {
   default = true
@@ -27,10 +33,16 @@ data "aws_subnets" "default" {
     name   = "vpc-id"
     values = [data.aws_vpc.default.id]
   }
+  filter {
+    name   = "availability-zone"
+    values = data.aws_availability_zones.available.names
+  }
 }
 
 data "aws_availability_zones" "available" {
   state = "available"
+  # Exclude us-east-1e as it doesn't support many instance types
+  exclude_names = ["us-east-1e"]
 }
 
 # Security Groups for containers
@@ -140,7 +152,7 @@ resource "aws_instance" "edmp_server" {
   instance_type = var.instance_type
   
   vpc_security_group_ids = [aws_security_group.edmp_container_sg.id]
-  subnet_id              = data.aws_subnets.default.ids[0]
+  subnet_id              = random_shuffle.subnet.result[0]
   
   associate_public_ip_address = true
   key_name = data.aws_key_pair.edmp_key.key_name

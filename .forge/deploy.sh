@@ -200,8 +200,13 @@ fi
 echo "🚀  Applying Terraform configuration..."
 
 # Instance type fallbacks for better resilience
-INSTANCE_TYPES=("t3.small" "t3.medium" "t2.medium" "t2.small" "t3.large")
+# Start with smaller instances to avoid AZ constraints
+INSTANCE_TYPES=("t3.small" "t2.small" "t3.medium" "t2.medium" "t3.large")
 TERRAFORM_SUCCESS=false
+
+echo "🔍  Checking available availability zones..."
+AVAILABLE_AZS=$(aws ec2 describe-availability-zones --region "${REGION}" --query "AvailabilityZones[?State=='available' && ZoneName!='us-east-1e'].ZoneName" --output text)
+echo "✅  Available AZs (excluding us-east-1e): ${AVAILABLE_AZS}"
 
 for INSTANCE_TYPE in "${INSTANCE_TYPES[@]}"; do
     echo "🔄  Attempting deployment with instance type: $INSTANCE_TYPE"
@@ -212,6 +217,12 @@ for INSTANCE_TYPE in "${INSTANCE_TYPES[@]}"; do
         break
     else
         echo "❌  Failed with instance type: $INSTANCE_TYPE"
+        
+        # Check if it's an AZ-related error
+        if terraform show -json 2>/dev/null | grep -q "Unsupported.*Availability Zone"; then
+            echo "⚠️   This appears to be an availability zone constraint issue"
+        fi
+        
         # Get the last item in a POSIX-compliant way
         last_index=$(( ${#INSTANCE_TYPES[@]} - 1 ))
         if [ "$INSTANCE_TYPE" != "${INSTANCE_TYPES[$last_index]}" ]; then
